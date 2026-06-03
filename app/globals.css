@@ -200,3 +200,16 @@ a[href*="v0.app"] {
 .danmaku-line {
   will-change: transform, opacity;
 }
+
+/* 长句弹幕：浅色底 + 多行 */
+.danmaku-long-box {
+  background: oklch(0.99 0.015 300 / 0.62);
+  border: 1px solid oklch(0.92 0.03 300 / 0.35);
+  box-shadow: 0 2px 12px oklch(0.75 0.06 300 / 0.1);
+  backdrop-filter: blur(6px);
+}
+
+.danmaku-line--long {
+  max-width: min(88vw, 26rem);
+  text-align: left;
+}

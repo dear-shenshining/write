@@ -3,37 +3,9 @@
 import { motion, AnimatePresence } from "framer-motion"
 import { useState, useCallback, useRef, useEffect, memo, startTransition } from "react"
 import { throttle } from "@/lib/utils"
-
-// 弹幕文案
-const danmakuTexts = [
-  "敬自由，敬创作",
-  "我以我笔，写下我神思",
-  "自由是创造力的土壤，创作是对生活最美好的回应",
-  "因为爱，所以我们相信",
-  "请尽情的创造自己的人生，书写自己的未来",
-  "不论你们最终走到哪里，只要迈出第一步，就是一次小小的成功。祝你们不断向前，走到辽广的天地，走到伸手能触碰到天空和星辰的高峰",
-  "追梦的路上，愿你不被现实磨去棱角，有朝一日也能成为照亮他人的人，好好读书学习，如果未来你也想拿起笔创作，请大胆创作出自己的一片天地吧！",
-  "明天是个好天气",
-  "外面阳光刚好",
-  "夜光之珠，不必出于孟津之河；盈握之璧，不必采于昆仑之山。",
-  "好好吃饭，好好长大",
-  "我们永远自由，我们永远思考，我们永远创作。",
-  "好好学习，天天向上",
-  "愿你像风——祝，自由。",
-  "韶华璀璨，庭树飞花",
-  "好好生活，多出去看看世界！",
-  "一切都在被制造，星星多么好",
-  "一身转战三千里，一剑曾当百万师。",
-  "成为自己，向自由",
-  "你的未来是无限的",
-  "广阔的世界等着大家，成为自己想成为的人吧！",
-  "且视他人之疑目如盏盏鬼火，大胆去走自己的夜路",
-  "请尽情去追寻你梦想中的世界吧！",
-  "祝你们永远幸福！成为想成为的人，去做想做的事吧",
-  "世界很美好，多多去感受。祝好运常在，好事常来。",
-  "每一颗小珍珠的命运，都是面向明天",
-  "若不为无益之事，则安能悦有涯之生",
-]
+import { DANMAKU_TEXTS, isLongDanmakuText } from "@/lib/danmaku-texts"
+import { createDanmakuTextPicker } from "@/lib/danmaku-picker"
+import { danmakuLaneSpan, splitDanmakuLines } from "@/lib/danmaku-format"
 
 // 鲜明颜色
 const vibrantColors = [
@@ -57,14 +29,48 @@ const LANE_MAX = 75
 interface DanmakuItem {
   id: number
   text: string
+  lines: string[]
+  isLong: boolean
   color: string
   top: number
   lane: number
+  laneSpan: number
   duration: number
 }
 
 function laneToTop(lane: number) {
   return LANE_MIN + (lane / (LANE_COUNT - 1)) * (LANE_MAX - LANE_MIN)
+}
+
+function laneBlockToTop(startLane: number, span: number) {
+  if (span <= 1) return laneToTop(startLane)
+  const endLane = Math.min(startLane + span - 1, LANE_COUNT - 1)
+  return (laneToTop(startLane) + laneToTop(endLane)) / 2
+}
+
+function getOccupiedLanes(items: DanmakuItem[]): Set<number> {
+  const occupied = new Set<number>()
+  for (const item of items) {
+    for (let k = 0; k < item.laneSpan; k++) {
+      const lane = item.lane + k
+      if (lane < LANE_COUNT) occupied.add(lane)
+    }
+  }
+  return occupied
+}
+
+function findLaneBlock(occupied: Set<number>, span: number): number | null {
+  for (let start = 0; start <= LANE_COUNT - span; start++) {
+    let ok = true
+    for (let k = 0; k < span; k++) {
+      if (occupied.has(start + k)) {
+        ok = false
+        break
+      }
+    }
+    if (ok) return start
+  }
+  return null
 }
 
 const DanmakuLine = memo(function DanmakuLine({
@@ -102,9 +108,30 @@ const DanmakuLine = memo(function DanmakuLine({
         top: `${item.top}%`,
         color: item.color,
       }}
-      className="danmaku-line absolute whitespace-nowrap text-base font-medium drop-shadow-sm sm:text-lg md:text-xl"
+      className={
+        item.isLong
+          ? "danmaku-line danmaku-line--long absolute text-sm font-medium drop-shadow-sm sm:text-base md:text-lg"
+          : "danmaku-line absolute whitespace-nowrap text-base font-medium drop-shadow-sm sm:text-lg md:text-xl"
+      }
     >
-      {item.text}
+      {item.isLong ? (
+        <div className="danmaku-long-box rounded-lg px-3 py-2 sm:rounded-xl sm:px-4 sm:py-2.5">
+          {item.lines.map((line, index) => (
+            <p
+              key={index}
+              className={
+                index > 0
+                  ? "mt-0.5 leading-relaxed sm:mt-1"
+                  : "leading-relaxed"
+              }
+            >
+              {line}
+            </p>
+          ))}
+        </div>
+      ) : (
+        item.text
+      )}
     </motion.div>
   )
 })
@@ -127,30 +154,38 @@ const danmakuTriggerRef: { current: () => void } = { current: () => {} }
 function DanmakuOverlay() {
   const [danmakuItems, setDanmakuItems] = useState<DanmakuItem[]>([])
   const nextIdRef = useRef(0)
+  const textPickerRef = useRef(createDanmakuTextPicker(DANMAKU_TEXTS))
 
   const spawnDanmaku = useCallback(() => {
     startTransition(() => {
       setDanmakuItems((prev) => {
         if (prev.length >= MAX_DANMAKU) return prev
 
-        const occupied = new Set(prev.map((item) => item.lane))
-        const available: number[] = []
-        for (let i = 0; i < LANE_COUNT; i++) {
-          if (!occupied.has(i)) available.push(i)
-        }
-        if (available.length === 0) return prev
+        const occupied = getOccupiedLanes(prev)
+        const text = textPickerRef.current.pick(prev.map((item) => item.text))
+        const isLong = isLongDanmakuText(text)
+        const lines = isLong ? splitDanmakuLines(text) : [text]
+        const laneSpan = danmakuLaneSpan(isLong, lines.length)
 
-        const lane = available[Math.floor(Math.random() * available.length)]
+        const lane = findLaneBlock(occupied, laneSpan)
+        if (lane === null) return prev
+
+        const duration = isLong
+          ? 14 + Math.random() * 8 + lines.length * 1.5
+          : 10 + Math.random() * 5
 
         return [
           ...prev,
           {
             id: nextIdRef.current++,
-            text: danmakuTexts[Math.floor(Math.random() * danmakuTexts.length)],
+            text,
+            lines,
+            isLong,
             color: vibrantColors[Math.floor(Math.random() * vibrantColors.length)],
-            top: laneToTop(lane),
+            top: laneBlockToTop(lane, laneSpan),
             lane,
-            duration: 10 + Math.random() * 5,
+            laneSpan,
+            duration,
           },
         ]
       })
