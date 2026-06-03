@@ -110,21 +110,20 @@ const DanmakuLine = memo(function DanmakuLine({
       }}
       className={
         item.isLong
-          ? "danmaku-line danmaku-line--long absolute text-sm font-medium drop-shadow-sm sm:text-base md:text-lg"
+          ? `danmaku-line danmaku-line--long absolute font-medium drop-shadow-sm text-[0.9375rem] sm:text-base ${
+              item.lines.length >= 3 ? "danmaku-line--long-3" : ""
+            }`
           : "danmaku-line absolute whitespace-nowrap text-base font-medium drop-shadow-sm sm:text-lg md:text-xl"
       }
     >
       {item.isLong ? (
-        <div className="danmaku-long-box rounded-lg px-3 py-2 sm:rounded-xl sm:px-4 sm:py-2.5">
+        <div
+          className={`danmaku-long-box ${
+            item.lines.length >= 3 ? "danmaku-long-box--lines-3" : ""
+          }`}
+        >
           {item.lines.map((line, index) => (
-            <p
-              key={index}
-              className={
-                index > 0
-                  ? "mt-0.5 leading-relaxed sm:mt-1"
-                  : "leading-relaxed"
-              }
-            >
+            <p key={index} className="danmaku-long-line">
               {line}
             </p>
           ))}
