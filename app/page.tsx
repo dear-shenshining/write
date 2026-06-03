@@ -1,7 +1,7 @@
 "use client"
 
 import { motion, AnimatePresence } from "framer-motion"
-import { useState, useCallback, useRef, useEffect, memo } from "react"
+import { useState, useCallback, useRef, useEffect, memo, startTransition } from "react"
 import { throttle } from "@/lib/utils"
 
 // 弹幕文案
@@ -13,6 +13,26 @@ const danmakuTexts = [
   "请尽情的创造自己的人生，书写自己的未来",
   "不论你们最终走到哪里，只要迈出第一步，就是一次小小的成功。祝你们不断向前，走到辽广的天地，走到伸手能触碰到天空和星辰的高峰",
   "追梦的路上，愿你不被现实磨去棱角，有朝一日也能成为照亮他人的人，好好读书学习，如果未来你也想拿起笔创作，请大胆创作出自己的一片天地吧！",
+  "明天是个好天气",
+  "外面阳光刚好",
+  "夜光之珠，不必出于孟津之河；盈握之璧，不必采于昆仑之山。",
+  "好好吃饭，好好长大",
+  "我们永远自由，我们永远思考，我们永远创作。",
+  "好好学习，天天向上",
+  "愿你像风——祝，自由。",
+  "韶华璀璨，庭树飞花",
+  "好好生活，多出去看看世界！",
+  "一切都在被制造，星星多么好",
+  "一身转战三千里，一剑曾当百万师。",
+  "成为自己，向自由",
+  "你的未来是无限的",
+  "广阔的世界等着大家，成为自己想成为的人吧！",
+  "且视他人之疑目如盏盏鬼火，大胆去走自己的夜路",
+  "请尽情去追寻你梦想中的世界吧！",
+  "祝你们永远幸福！成为想成为的人，去做想做的事吧",
+  "世界很美好，多多去感受。祝好运常在，好事常来。",
+  "每一颗小珍珠的命运，都是面向明天",
+  "若不为无益之事，则安能悦有涯之生",
 ]
 
 // 鲜明颜色
@@ -82,7 +102,7 @@ const DanmakuLine = memo(function DanmakuLine({
         top: `${item.top}%`,
         color: item.color,
       }}
-      className="absolute whitespace-nowrap text-base font-medium drop-shadow-sm sm:text-lg md:text-xl"
+      className="danmaku-line absolute whitespace-nowrap text-base font-medium drop-shadow-sm sm:text-lg md:text-xl"
     >
       {item.text}
     </motion.div>
@@ -91,7 +111,7 @@ const DanmakuLine = memo(function DanmakuLine({
 
 function Danmaku({ items, onComplete }: { items: DanmakuItem[]; onComplete: (id: number) => void }) {
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden">
+    <div className="pointer-events-none fixed inset-0 z-50 overflow-hidden" aria-hidden>
       <AnimatePresence mode="popLayout">
         {items.map((item) => (
           <DanmakuLine key={item.id} item={item} onComplete={onComplete} />
@@ -99,6 +119,64 @@ function Danmaku({ items, onComplete }: { items: DanmakuItem[]; onComplete: (id:
       </AnimatePresence>
     </div>
   )
+}
+
+/** 弹幕逻辑完全在浏览器端运行，与服务器无交互 */
+const danmakuTriggerRef: { current: () => void } = { current: () => {} }
+
+function DanmakuOverlay() {
+  const [danmakuItems, setDanmakuItems] = useState<DanmakuItem[]>([])
+  const nextIdRef = useRef(0)
+
+  const spawnDanmaku = useCallback(() => {
+    startTransition(() => {
+      setDanmakuItems((prev) => {
+        if (prev.length >= MAX_DANMAKU) return prev
+
+        const occupied = new Set(prev.map((item) => item.lane))
+        const available: number[] = []
+        for (let i = 0; i < LANE_COUNT; i++) {
+          if (!occupied.has(i)) available.push(i)
+        }
+        if (available.length === 0) return prev
+
+        const lane = available[Math.floor(Math.random() * available.length)]
+
+        return [
+          ...prev,
+          {
+            id: nextIdRef.current++,
+            text: danmakuTexts[Math.floor(Math.random() * danmakuTexts.length)],
+            color: vibrantColors[Math.floor(Math.random() * vibrantColors.length)],
+            top: laneToTop(lane),
+            lane,
+            duration: 10 + Math.random() * 5,
+          },
+        ]
+      })
+    })
+  }, [])
+
+  const triggerDanmaku = useRef(
+    throttle(() => {
+      spawnDanmaku()
+    }, TRIGGER_THROTTLE_MS)
+  ).current
+
+  const removeDanmaku = useCallback((id: number) => {
+    startTransition(() => {
+      setDanmakuItems((prev) => prev.filter((item) => item.id !== id))
+    })
+  }, [])
+
+  useEffect(() => {
+    danmakuTriggerRef.current = triggerDanmaku
+    return () => {
+      danmakuTriggerRef.current = () => {}
+    }
+  }, [triggerDanmaku])
+
+  return <Danmaku items={danmakuItems} onComplete={removeDanmaku} />
 }
 
 // 珍珠装饰组件
@@ -239,52 +317,10 @@ function Decorations() {
 }
 
 export default function ThankYouLetter() {
-  const [danmakuItems, setDanmakuItems] = useState<DanmakuItem[]>([])
-  const nextIdRef = useRef(0)
-  const spawnDanmakuRef = useRef<() => void>(() => {})
-
-  const spawnDanmaku = useCallback(() => {
-    setDanmakuItems((prev) => {
-      if (prev.length >= MAX_DANMAKU) return prev
-
-      const occupied = new Set(prev.map((item) => item.lane))
-      const available: number[] = []
-      for (let i = 0; i < LANE_COUNT; i++) {
-        if (!occupied.has(i)) available.push(i)
-      }
-      if (available.length === 0) return prev
-
-      const lane = available[Math.floor(Math.random() * available.length)]
-
-      const newItem: DanmakuItem = {
-        id: nextIdRef.current++,
-        text: danmakuTexts[Math.floor(Math.random() * danmakuTexts.length)],
-        color: vibrantColors[Math.floor(Math.random() * vibrantColors.length)],
-        top: laneToTop(lane),
-        lane,
-        duration: 10 + Math.random() * 5,
-      }
-
-      return [...prev, newItem]
-    })
-  }, [])
-
-  spawnDanmakuRef.current = spawnDanmaku
-
-  const triggerDanmaku = useRef(
-    throttle(() => {
-      spawnDanmakuRef.current()
-    }, TRIGGER_THROTTLE_MS)
-  ).current
-
-  const removeDanmaku = useCallback((id: number) => {
-    setDanmakuItems((prev) => prev.filter((item) => item.id !== id))
-  }, [])
-
   return (
     <div className="oil-painting-texture relative min-h-screen">
-      {/* 弹幕层 */}
-      <Danmaku items={danmakuItems} onComplete={removeDanmaku} />
+      {/* 弹幕层：独立组件，点击不会触发正文重渲染，也不请求服务器 */}
+      <DanmakuOverlay />
 
       {/* 背景渐变层 */}
       <div className="fixed inset-0 bg-gradient-to-br from-[oklch(0.92_0.05_350/0.2)] via-background to-[oklch(0.9_0.04_250/0.2)]" />
@@ -354,7 +390,8 @@ export default function ThankYouLetter() {
             {/* 致敬语 */}
             <div className="my-6 space-y-1 text-center sm:my-8">
               <button
-                onClick={triggerDanmaku}
+                type="button"
+                onClick={() => danmakuTriggerRef.current()}
                 className="text-base font-medium tracking-widest text-primary/80 transition-all duration-300 hover:scale-105 hover:text-primary active:scale-95 sm:text-lg"
               >
                 敬自由，敬创作。

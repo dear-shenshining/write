@@ -195,3 +195,8 @@ a[href*="v0.dev"],
 a[href*="v0.app"] {
   display: none !important;
 }
+
+/* 弹幕动画走 GPU 合成层，减轻主线程压力 */
+.danmaku-line {
+  will-change: transform, opacity;
+}
